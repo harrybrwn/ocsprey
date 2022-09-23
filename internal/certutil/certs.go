@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"io"
 	"os"
 )
@@ -33,7 +34,18 @@ func OpenKey(filename string) (crypto.Signer, error) {
 		return nil, err
 	}
 	block, _ := pem.Decode(bytes)
-	return x509.ParsePKCS1PrivateKey(block.Bytes)
+	switch block.Type {
+	case "RSA PRIVATE KEY":
+		return x509.ParsePKCS1PrivateKey(block.Bytes)
+	case "PRIVATE KEY":
+		k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		return k.(crypto.Signer), nil
+	default:
+		return nil, errors.New("unknown pem block type")
+	}
 }
 
 func WriteCertificate(filename string, signed []byte) error {
