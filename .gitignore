@@ -1,0 +1,22 @@
+*.log
+test.sh
+client.sh
+up.sh
+
+# Config
+.vscode/
+
+# Test Data
+*.crt
+*.key
+*.csr
+*.pem
+index.txt
+index.txt.old
+index.txt.attr
+index.txt.attr.old
+serial
+serial.old
+
+# For mac people
+.DS_Store

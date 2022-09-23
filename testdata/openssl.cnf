@@ -1,0 +1,102 @@
+[ca]
+default_ca = CA_default
+
+
+[CA_default]
+dir             = $ENV::CA_ROOT
+certs           = $dir/certs
+crl_dir         = $dir/crl
+database        = $dir/db/index.txt
+serial          = $dir/db/serial
+certificate     = $dir/ca.crt
+private_key     = $dir/ca.key
+crl             = $dir/crl.pem
+x509_extensions = usr_cert
+new_certs_dir   = $dir/db/certs
+
+name_opt = ca_default
+cert_opt = ca_default
+default_days = 365
+default_md = default
+preserve = no
+policy = policy_any
+
+
+[policy_any]
+commonName              = supplied
+countryName             = optional
+stateOrProvinceName	    = optional
+localityName            = optional
+organizationName        = optional
+organizationalUnitName  = optional
+emailAddress            = optional
+
+
+[req]
+default_bits       = 2048
+distinguished_name = req_distinguished_name
+x509_extensions	   = v3_ca
+
+
+[usr_cert]
+basicConstraints       = CA:FALSE
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid, issuer
+authorityInfoAccess    = OCSP;URI:http://localhost:8888
+
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+
+
+[v3_ca]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always, issuer
+basicConstraints = critical, CA:true
+
+
+[v3_intermediate]
+basicConstraints = critical, CA:true, pathlen:0
+
+
+[req_distinguished_name]
+countryName                 = Country Name (2 letter code)
+countryName_default         = US
+countryName_min             = 2
+countryName_max             = 2
+stateOrProvinceName         = State or Province Name (full name)
+stateOrProvinceName_default	= Some-State
+localityName                = Locality Name (eg, city)
+0.organizationName          = Organization Name (eg, company)
+0.organizationName_default  = HarryBrown
+# we can do this but it is not needed normally :-)
+organizationalUnitName = Personal Site
+commonName             = Common Name
+commonName_max         = 64
+emailAddress           = Email Address
+emailAddress_max       = 64
+
+
+[client]
+basicConstraints       = CA:false
+keyUsage               = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage       = clientAuth
+authorityKeyIdentifier = keyid:always, issuer
+subjectKeyIdentifier   = hash
+authorityInfoAccess    = OCSP;URI:http://localhost:8888
+
+
+[server]
+basicConstraints       = CA:false
+keyUsage               = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage       = serverAuth
+authorityKeyIdentifier = keyid:always, issuer
+subjectKeyIdentifier   = hash
+authorityInfoAccess    = OCSP;URI:http://localhost:8888
+
+
+[v3_ocsp_responder]
+basicConstraints = CA:false
+keyUsage         = nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage = OCSPSigning
