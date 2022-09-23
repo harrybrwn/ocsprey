@@ -22,16 +22,6 @@ type issuerDB struct {
 
 var _ ca.ResponderDB = (*issuerDB)(nil)
 
-func (db *issuerDB) add(crt, respCert *x509.Certificate, respKey crypto.Signer) error {
-	return db.Put(context.Background(), &ca.Responder{
-		CA: crt,
-		Signer: ca.KeyPair{
-			Key:  respKey,
-			Cert: respCert,
-		},
-	})
-}
-
 func (db *issuerDB) get(key []byte) (*ca.Responder, error) {
 	k := hex.EncodeToString(key)
 	db.mu.RLock()

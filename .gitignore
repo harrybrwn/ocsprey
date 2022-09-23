@@ -5,6 +5,7 @@ up.sh
 
 # Config
 .vscode/
+.ocsprey/
 
 # Test Data
 *.crt

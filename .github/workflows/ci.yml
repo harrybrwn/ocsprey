@@ -67,5 +67,7 @@ jobs:
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: Checkout Code
+      uses: actions/checkout@v2
     - name: Build Image
       run: docker buildx bake --push

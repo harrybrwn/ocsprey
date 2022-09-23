@@ -20,6 +20,7 @@ import (
 )
 
 //go:generate sh testdata/gen.sh
+//go:generate mockgen -package mockca -destination internal/mocks/mockca/mockca.go gopkg.hrry.dev/ocsprey/ca ResponderDB,CertStore
 
 func main() {
 	root := newRootCmd()
@@ -60,6 +61,7 @@ func newRootCmd() *cobra.Command {
 func newServerCmd(logger *logrus.Logger) *cobra.Command {
 	var (
 		port         = toInt(env("SERVER_PORT", "8888"))
+		newCertDir   = env("SERVER_NEW_CERTS_DIR", ".ocsprey/certs")
 		responderKey []string
 		responderCrt []string
 		issuers      []string
@@ -76,35 +78,55 @@ func newServerCmd(logger *logrus.Logger) *cobra.Command {
 				hasher:         crypto.SHA1,
 				subjectHashSet: make(map[string]string),
 			}
-			// certdb := openssl.EmptyIndex(
-			// 	openssl.WithNewCertsDir(filepath.Join(filepath.Dir(index), "certs")),
-			// 	openssl.WithHashFunc(authority.hasher),
-			// )
-
-			certdb, err := openssl.OpenIndex(
-				index,
-				openssl.WithSerialFile(filepath.Join(filepath.Dir(index), "serial")),
-				openssl.WithNewCertsDir(filepath.Join(filepath.Dir(index), "certs")),
-				openssl.WithHashFunc(authority.hasher),
+			var (
+				err    error
+				certdb *openssl.IndexTXT
 			)
-			if err != nil {
-				return err
+
+			if index != "" {
+				newCertDir = filepath.Join(filepath.Dir(index), "certs")
+				certdb, err = openssl.OpenIndex(
+					index,
+					openssl.WithSerialFile(filepath.Join(filepath.Dir(index), "serial")),
+					openssl.WithNewCertsDir(filepath.Join(filepath.Dir(index), "certs")),
+					openssl.WithHashFunc(authority.hasher),
+				)
+				if err != nil {
+					return err
+				}
+			} else {
+				certdb = openssl.EmptyIndex(
+					openssl.WithHashFunc(authority.hasher),
+					openssl.WithNewCertsDir(newCertDir),
+				)
 			}
 
-			key, err := certutil.OpenKey(responderKey[0])
-			if err != nil {
-				return err
+			if !exists(newCertDir) {
+				if err = os.MkdirAll(newCertDir, 0755); err != nil {
+					return err
+				}
 			}
-			crt, err := certutil.OpenCertificate(responderCrt[0])
-			if err != nil {
-				return err
-			}
-			iss, err := certutil.OpenCertificate(issuers[0])
-			if err != nil {
-				return err
-			}
-			if err = authority.add(iss, crt, key); err != nil {
-				return err
+
+			if len(responderCrt) > 0 && len(responderKey) > 0 && len(issuers) > 0 {
+				key, err := certutil.OpenKey(responderKey[0])
+				if err != nil {
+					return err
+				}
+				crt, err := certutil.OpenCertificate(responderCrt[0])
+				if err != nil {
+					return err
+				}
+				iss, err := certutil.OpenCertificate(issuers[0])
+				if err != nil {
+					return err
+				}
+				err = authority.Put(ctx, &ca.Responder{
+					CA:     iss,
+					Signer: ca.KeyPair{Cert: crt, Key: key},
+				})
+				if err != nil {
+					return err
+				}
 			}
 
 			mux := http.NewServeMux()
@@ -127,6 +149,7 @@ func newServerCmd(logger *logrus.Logger) *cobra.Command {
 	f.StringArrayVar(&responderCrt, "rcrt", responderCrt, "OCSP responder certificate")
 	f.StringArrayVar(&issuers, "issuer", issuers, "issuer certificate")
 	f.StringVar(&index, "index", index, "openssl index db file")
+	f.StringVar(&newCertDir, "new-certs-dir", newCertDir, "directory to write new certificates to")
 	return &c
 }
 
@@ -144,4 +167,9 @@ func toInt(s string) int {
 		panic(err)
 	}
 	return int(v)
+}
+
+func exists(s string) bool {
+	_, err := os.Stat(s)
+	return !os.IsNotExist(err)
 }
