@@ -103,7 +103,9 @@ func newServerCmd(logger *logrus.Logger) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			authority.add(iss, crt, key)
+			if err = authority.add(iss, crt, key); err != nil {
+				return err
+			}
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("/", server.Responder(&authority, certdb))

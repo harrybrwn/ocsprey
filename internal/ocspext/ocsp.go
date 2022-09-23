@@ -91,12 +91,12 @@ type certID struct {
 	SerialNumber  *big.Int
 }
 
-func hasNonce(exts []pkix.Extension) *pkix.Extension {
-	nonce_oid := asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 2}
-	for _, ext := range exts {
-		if ext.Id.Equal(nonce_oid) {
-			return &ext
-		}
-	}
-	return nil
-}
+//func hasNonce(exts []pkix.Extension) *pkix.Extension {
+//	nonce_oid := asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 2}
+//	for _, ext := range exts {
+//		if ext.Id.Equal(nonce_oid) {
+//			return &ext
+//		}
+//	}
+//	return nil
+//}

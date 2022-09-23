@@ -29,14 +29,14 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		if err != nil {
 			logger.WithError(err).Warn("failed to read http request body")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write(ocsp.MalformedRequestErrorResponse)
+			_, _ = w.Write(ocsp.MalformedRequestErrorResponse)
 			return
 		}
 		req, exts, err := ocspext.ParseRequest(body)
 		if err != nil {
 			logger.WithError(err).Warn("failed to parse ocsp request")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write(ocsp.MalformedRequestErrorResponse)
+			_, _ = w.Write(ocsp.MalformedRequestErrorResponse)
 			return
 		}
 
@@ -64,7 +64,7 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		if err != nil {
 			logger.WithError(err).Warn("issuer not found")
 			w.WriteHeader(404)
-			w.Write(ocsp.InternalErrorErrorResponse)
+			_, _ = w.Write(ocsp.InternalErrorErrorResponse)
 			return
 		}
 		template.Certificate = responder.Signer.Cert
@@ -121,10 +121,10 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		if err != nil {
 			logger.WithError(err).Error("failed to create raw response")
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write(ocsp.InternalErrorErrorResponse)
+			_, _ = w.Write(ocsp.InternalErrorErrorResponse)
 			return
 		}
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}
 }
 
