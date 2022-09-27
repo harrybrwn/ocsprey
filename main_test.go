@@ -54,8 +54,14 @@ func TestServer(t *testing.T) {
 	mux.Handle("/leaf/revoke", server.ControlCertRevoke(authority, txt))
 	srv := http.Server{Addr: ":8888", Handler: mux}
 	defer func() {
-		srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Error(err)
+		}
 	}()
-	go srv.ListenAndServe()
+	go func() {
+		if err := srv.ListenAndServe(); err != nil {
+			t.Error(err)
+		}
+	}()
 	// TODO do tests here
 }
