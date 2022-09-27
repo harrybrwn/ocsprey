@@ -21,9 +21,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:generate sh testdata/gen.sh
-//go:generate mockgen -package mockca -destination internal/mocks/mockca/mockca.go gopkg.hrry.dev/ocsprey/ca ResponderDB,CertStore
-
 func main() {
 	root := newRootCmd()
 	err := root.Execute()
@@ -175,19 +172,27 @@ type ResponderConfig struct {
 }
 
 func getResponder(cfg *OpenSSLIndexConfig) (*ca.Responder, error) {
+	return openResponderKeys(
+		filepath.Join(cfg.BaseDir, cfg.RootCA),
+		filepath.Join(cfg.BaseDir, cfg.OCSPResponder.Cert),
+		filepath.Join(cfg.BaseDir, cfg.OCSPResponder.Key),
+	)
+}
+
+func openResponderKeys(root, cert, key string) (*ca.Responder, error) {
 	var (
 		err       error
 		responder ca.Responder
 	)
-	responder.CA, err = certutil.OpenCertificate(filepath.Join(cfg.BaseDir, cfg.RootCA))
+	responder.CA, err = certutil.OpenCertificate(root)
 	if err != nil {
 		return nil, err
 	}
-	responder.Signer.Cert, err = certutil.OpenCertificate(filepath.Join(cfg.BaseDir, cfg.OCSPResponder.Cert))
+	responder.Signer.Cert, err = certutil.OpenCertificate(cert)
 	if err != nil {
 		return nil, err
 	}
-	responder.Signer.Key, err = certutil.OpenKey(filepath.Join(cfg.BaseDir, cfg.OCSPResponder.Key))
+	responder.Signer.Key, err = certutil.OpenKey(key)
 	if err != nil {
 		return nil, err
 	}
