@@ -17,6 +17,7 @@ import (
 	"gopkg.hrry.dev/ocsprey/internal/certutil"
 	"gopkg.hrry.dev/ocsprey/internal/log"
 	"gopkg.hrry.dev/ocsprey/internal/server"
+	"gopkg.in/yaml.v3"
 )
 
 //go:generate sh testdata/gen.sh
@@ -33,8 +34,10 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	var (
-		logger   = logrus.New()
-		logLevel = env("LOG_LEVEL", "debug")
+		logger     = logrus.New()
+		logLevel   = env("LOG_LEVEL", "debug")
+		configFile string
+		config     Config
 	)
 	c := cobra.Command{
 		Use:           "ocspray",
@@ -47,25 +50,36 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			logger.Level = lvl
+			if exists(configFile) {
+				raw, err := os.ReadFile(configFile)
+				if err != nil {
+					return err
+				}
+				err = yaml.Unmarshal(raw, &config)
+				if err != nil {
+					return err
+				}
+			}
 			return nil
 		},
 	}
 	c.AddCommand(
-		newServerCmd(logger),
+		newServerCmd(&config, logger),
 	)
 	f := c.PersistentFlags()
 	f.StringVar(&logLevel, "log-level", logLevel, "set the logging level (trace, debug, info, warn, error)")
+	f.StringVarP(&configFile, "config", "c", configFile, "configuration file path")
 	return &c
 }
 
-func newServerCmd(logger *logrus.Logger) *cobra.Command {
+func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 	var (
-		port         = toInt(env("SERVER_PORT", "8888"))
-		newCertDir   = env("SERVER_NEW_CERTS_DIR", ".ocsprey/certs")
-		responderKey []string
-		responderCrt []string
-		issuers      []string
-		index        string
+		port       = toInt(env("SERVER_PORT", "8888"))
+		newCertDir = env("SERVER_NEW_CERTS_DIR", ".ocsprey/certs")
+		// responderKey []string
+		// responderCrt []string
+		// issuers      []string
+		// index        string
 	)
 	c := cobra.Command{
 		Use:   "server",
@@ -80,54 +94,87 @@ func newServerCmd(logger *logrus.Logger) *cobra.Command {
 			}
 			var (
 				err    error
-				certdb *openssl.IndexTXT
+				certdb = openssl.EmptyIndex()
 			)
 
-			if index != "" {
-				newCertDir = filepath.Join(filepath.Dir(index), "certs")
-				certdb, err = openssl.OpenIndex(
-					index,
-					openssl.WithSerialFile(filepath.Join(filepath.Dir(index), "serial")),
-					openssl.WithNewCertsDir(filepath.Join(filepath.Dir(index), "certs")),
-					openssl.WithHashFunc(authority.hasher),
-				)
-				if err != nil {
-					return err
+			for _, cfg := range conf.OpenSSL {
+				if cfg.BaseDir == "" {
+					cfg.BaseDir = "."
 				}
-			} else {
-				certdb = openssl.EmptyIndex(
-					openssl.WithHashFunc(authority.hasher),
-					openssl.WithNewCertsDir(newCertDir),
-				)
-			}
-
-			if !exists(newCertDir) {
-				if err = os.MkdirAll(newCertDir, 0755); err != nil {
-					return err
-				}
-			}
-
-			if len(responderCrt) > 0 && len(responderKey) > 0 && len(issuers) > 0 {
-				key, err := certutil.OpenKey(responderKey[0])
-				if err != nil {
-					return err
-				}
-				crt, err := certutil.OpenCertificate(responderCrt[0])
-				if err != nil {
-					return err
-				}
-				iss, err := certutil.OpenCertificate(issuers[0])
-				if err != nil {
-					return err
-				}
-				err = authority.Put(ctx, &ca.Responder{
-					CA:     iss,
-					Signer: ca.KeyPair{Cert: crt, Key: key},
+				err = certdb.AddIndex(&openssl.IndexConfig{
+					Index:    filepath.Join(cfg.BaseDir, cfg.IndexFile),
+					NewCerts: filepath.Join(cfg.BaseDir, cfg.NewCertsDir),
+					CA:       filepath.Join(cfg.BaseDir, cfg.RootCA),
+					Serial:   filepath.Join(cfg.BaseDir, cfg.SerialFile),
+					Hash:     authority.hasher,
 				})
 				if err != nil {
 					return err
 				}
+				var responder ca.Responder
+				responder.CA, err = certutil.OpenCertificate(filepath.Join(cfg.BaseDir, cfg.RootCA))
+				if err != nil {
+					return err
+				}
+				responder.Signer.Cert, err = certutil.OpenCertificate(filepath.Join(cfg.BaseDir, cfg.OCSPResponder.Cert))
+				if err != nil {
+					return err
+				}
+				responder.Signer.Key, err = certutil.OpenKey(filepath.Join(cfg.BaseDir, cfg.OCSPResponder.Key))
+				if err != nil {
+					return err
+				}
+				err = authority.Put(ctx, &responder)
+				if err != nil {
+					return err
+				}
 			}
+
+			// if index != "" {
+			// 	newCertDir = filepath.Join(filepath.Dir(index), "certs")
+			// 	certdb, err = openssl.OpenIndex(
+			// 		index,
+			// 		openssl.WithSerialFile(filepath.Join(filepath.Dir(index), "serial")),
+			// 		openssl.WithNewCertsDir(filepath.Join(filepath.Dir(index), "certs")),
+			// 		openssl.WithHashFunc(authority.hasher),
+			// 	)
+			// 	if err != nil {
+			// 		return err
+			// 	}
+			// } else {
+			// 	certdb = openssl.EmptyIndex(
+			// 		openssl.WithHashFunc(authority.hasher),
+			// 		openssl.WithNewCertsDir(newCertDir),
+			// 	)
+			// }
+
+			// if !exists(newCertDir) {
+			// 	if err = os.MkdirAll(newCertDir, 0755); err != nil {
+			// 		return err
+			// 	}
+			// }
+
+			// if len(responderCrt) > 0 && len(responderKey) > 0 && len(issuers) > 0 {
+			// 	key, err := certutil.OpenKey(responderKey[0])
+			// 	if err != nil {
+			// 		return err
+			// 	}
+			// 	crt, err := certutil.OpenCertificate(responderCrt[0])
+			// 	if err != nil {
+			// 		return err
+			// 	}
+			// 	iss, err := certutil.OpenCertificate(issuers[0])
+			// 	if err != nil {
+			// 		return err
+			// 	}
+			// 	err = authority.Put(ctx, &ca.Responder{
+			// 		CA:     iss,
+			// 		Signer: ca.KeyPair{Cert: crt, Key: key},
+			// 	})
+			// 	if err != nil {
+			// 		return err
+			// 	}
+			// }
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("/", server.Responder(&authority, certdb))
@@ -145,10 +192,10 @@ func newServerCmd(logger *logrus.Logger) *cobra.Command {
 	}
 	f := c.Flags()
 	f.IntVarP(&port, "port", "p", port, "server port")
-	f.StringArrayVar(&responderKey, "rkey", responderKey, "OCSP responder key")
-	f.StringArrayVar(&responderCrt, "rcrt", responderCrt, "OCSP responder certificate")
-	f.StringArrayVar(&issuers, "issuer", issuers, "issuer certificate")
-	f.StringVar(&index, "index", index, "openssl index db file")
+	// f.StringArrayVar(&responderKey, "rkey", responderKey, "OCSP responder key")
+	// f.StringArrayVar(&responderCrt, "rcrt", responderCrt, "OCSP responder certificate")
+	// f.StringArrayVar(&issuers, "issuer", issuers, "issuer certificate")
+	// f.StringVar(&index, "index", index, "openssl index db file")
 	f.StringVar(&newCertDir, "new-certs-dir", newCertDir, "directory to write new certificates to")
 	return &c
 }
@@ -172,4 +219,22 @@ func toInt(s string) int {
 func exists(s string) bool {
 	_, err := os.Stat(s)
 	return !os.IsNotExist(err)
+}
+
+type Config struct {
+	OpenSSL []OpenSSLIndexConfig `yaml:"openssl"`
+}
+
+type OpenSSLIndexConfig struct {
+	BaseDir       string          `yaml:"base_dir"`
+	IndexFile     string          `yaml:"index_file"`
+	SerialFile    string          `yaml:"serial_file"`
+	NewCertsDir   string          `yaml:"new_certs_dir"`
+	RootCA        string          `yaml:"root_ca"`
+	OCSPResponder ResponderConfig `yaml:"ocsp_responder"`
+}
+
+type ResponderConfig struct {
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
 }

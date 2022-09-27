@@ -2,3 +2,14 @@
 
 Pronounced osprey, like the bird.
 
+## Install
+
+Install from source.
+```bash
+go install gopkg.hrry.dev/ocsprey@latest
+```
+
+Or pull docker image.
+```bash
+docker run --rm -it harrybrwn/ocsprey:latest
+```

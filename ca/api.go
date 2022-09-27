@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/x509"
 	"errors"
-	"math/big"
 )
 
 type CertStatus uint8
@@ -17,21 +16,34 @@ const (
 	Expired
 )
 
+const (
+	SerialOctets = 20
+	SerialBits   = 8 * SerialOctets
+)
+
 var (
 	ErrCertNotFound = errors.New("certificate not found")
 	ErrCertExpired  = errors.New("certificate is expired")
 )
 
 type KeyID interface {
-	Hash() crypto.Hash
-	Bytes() []byte
+	Serial() ID
+	KeyHash() []byte
 }
 
+type ID interface{ Bytes() []byte }
+
+// TODO add a certificate wrapper type
+
 type CertStore interface {
-	Get(context.Context, *big.Int) (*x509.Certificate, CertStatus, error)
-	Del(context.Context, *big.Int) error
+	Get(context.Context, KeyID) (*x509.Certificate, CertStatus, error)
+	Del(context.Context, KeyID) error
 	Put(context.Context, *x509.Certificate) error
-	Status(context.Context, *big.Int) (CertStatus, error)
+	Revoke(context.Context, KeyID) error
+}
+
+type MultiCAStore interface {
+	Store(context.Context, []byte) (CertStore, error)
 }
 
 type KeyPair struct {

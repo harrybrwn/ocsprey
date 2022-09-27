@@ -7,7 +7,6 @@ package mockca
 import (
 	context "context"
 	x509 "crypto/x509"
-	big "math/big"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -119,7 +118,7 @@ func (m *MockCertStore) EXPECT() *MockCertStoreMockRecorder {
 }
 
 // Del mocks base method.
-func (m *MockCertStore) Del(arg0 context.Context, arg1 *big.Int) error {
+func (m *MockCertStore) Del(arg0 context.Context, arg1 ca.KeyID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Del", arg0, arg1)
 	ret0, _ := ret[0].(error)
@@ -133,7 +132,7 @@ func (mr *MockCertStoreMockRecorder) Del(arg0, arg1 interface{}) *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *MockCertStore) Get(arg0 context.Context, arg1 *big.Int) (*x509.Certificate, ca.CertStatus, error) {
+func (m *MockCertStore) Get(arg0 context.Context, arg1 ca.KeyID) (*x509.Certificate, ca.CertStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0, arg1)
 	ret0, _ := ret[0].(*x509.Certificate)
@@ -160,19 +159,4 @@ func (m *MockCertStore) Put(arg0 context.Context, arg1 *x509.Certificate) error 
 func (mr *MockCertStoreMockRecorder) Put(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockCertStore)(nil).Put), arg0, arg1)
-}
-
-// Status mocks base method.
-func (m *MockCertStore) Status(arg0 context.Context, arg1 *big.Int) (ca.CertStatus, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Status", arg0, arg1)
-	ret0, _ := ret[0].(ca.CertStatus)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Status indicates an expected call of Status.
-func (mr *MockCertStoreMockRecorder) Status(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockCertStore)(nil).Status), arg0, arg1)
 }

@@ -34,6 +34,9 @@ func (db *issuerDB) get(key []byte) (*ca.Responder, error) {
 }
 
 func (db *issuerDB) Find(ctx context.Context, leaf *x509.Certificate) (*ca.Responder, error) {
+	if len(leaf.AuthorityKeyId) > 0 {
+		return db.get(leaf.AuthorityKeyId)
+	}
 	h := db.hasher.New()
 	_, err := h.Write(leaf.RawIssuer)
 	if err != nil {

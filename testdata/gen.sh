@@ -3,16 +3,16 @@
 set -eu
 
 export OPENSSL_CONF=testdata/openssl.cnf
+GEN_LOG=/dev/null
+# GEN_LOG="./openssl-generate.log"
+# rm -f "$GEN_LOG"
+# touch "$GEN_LOG"
 
 for i in $(seq 0 2); do
 	root="testdata/pki${i}"
 	export CA_ROOT="${root}"
 	rm -rf "${root}"
 	mkdir -p "${root}/out" "${root}/db/certs"
-
-	GEN_LOG="./openssl-generate.log"
-	rm -f "$GEN_LOG"
-	touch "$GEN_LOG"
 
 	if [ ! -f "${root}/db/serial" ]; then
 		echo '1000' > "${root}/db/serial"

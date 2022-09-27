@@ -1,0 +1,27 @@
+openssl:
+  - base_dir: testdata/pki0
+    index_file: db/index.txt
+    serial_file: db/serial
+    new_certs_dir: db/certs
+    root_ca: ca.crt
+    ocsp_responder:
+      cert: out/ocsp-responder.crt
+      key: out/ocsp-responder.key
+
+  - base_dir: testdata/pki1
+    index_file: db/index.txt
+    serial_file: db/serial
+    new_certs_dir: db/certs
+    root_ca: ca.crt
+    ocsp_responder:
+      cert: out/ocsp-responder.crt
+      key: out/ocsp-responder.key
+
+  - base_dir: testdata/pki2
+    index_file: db/index.txt
+    serial_file: db/serial
+    new_certs_dir: db/certs
+    root_ca: ca.crt
+    ocsp_responder:
+      cert: out/ocsp-responder.crt
+      key: out/ocsp-responder.key

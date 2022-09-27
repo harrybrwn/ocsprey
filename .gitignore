@@ -2,6 +2,7 @@
 test.sh
 client.sh
 up.sh
+build.sh
 
 # Config
 .vscode/

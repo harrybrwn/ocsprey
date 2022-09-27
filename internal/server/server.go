@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"crypto"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -29,14 +31,14 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		if err != nil {
 			logger.WithError(err).Warn("failed to read http request body")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write(ocsp.MalformedRequestErrorResponse)
+			write(logger, w, ocsp.MalformedRequestErrorResponse)
 			return
 		}
 		req, exts, err := ocspext.ParseRequest(body)
 		if err != nil {
 			logger.WithError(err).Warn("failed to parse ocsp request")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write(ocsp.MalformedRequestErrorResponse)
+			write(logger, w, ocsp.MalformedRequestErrorResponse)
 			return
 		}
 
@@ -64,13 +66,14 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		if err != nil {
 			logger.WithError(err).Warn("issuer not found")
 			w.WriteHeader(404)
-			_, _ = w.Write(ocsp.InternalErrorErrorResponse)
+			write(logger, w, ocsp.InternalErrorErrorResponse)
 			return
 		}
 		template.Certificate = responder.Signer.Cert
 		template.SignatureAlgorithm = responder.Signer.Cert.SignatureAlgorithm
 
-		cert, stat, err = certdb.Get(ctx, req.SerialNumber)
+		// cert, stat, err = certdb.Get(ctx, req.SerialNumber)
+		cert, stat, err = certdb.Get(ctx, (*ocspKeyID)(req))
 		if err != nil {
 			logger.WithError(err).Warn("failed to get certificate")
 			template.Status = ocsp.Unknown
@@ -121,10 +124,10 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		if err != nil {
 			logger.WithError(err).Error("failed to create raw response")
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write(ocsp.InternalErrorErrorResponse)
+			write(logger, w, ocsp.InternalErrorErrorResponse)
 			return
 		}
-		_, _ = w.Write(resp)
+		write(logger, w, resp)
 	}
 }
 
@@ -150,6 +153,18 @@ func ControlIssuer(authority ca.ResponderDB) http.Handler {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			// TODO if we want to enforce a global root CA for all intermediates
+			// then we should check that here.
+			if !rp.CA.IsCA {
+				logger.Info("new certificate issuer is not a CA")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if !isOCSPSigner(rp.Signer.Cert) {
+				logger.Info("signer is not an OCSP key pair")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			err = authority.Put(ctx, &rp)
 			if err != nil {
 				logger.WithError(err).Error("failed to insert new responder")
@@ -166,31 +181,18 @@ func ControlIssuer(authority ca.ResponderDB) http.Handler {
 
 func ControlCert(authority ca.ResponderDB, certdb ca.CertStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		switch r.Method {
+		case "POST":
+		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 		ctx := r.Context()
 		logger := log.ContextLogger(ctx)
-		// var body certificateBody
-		// err := json.NewDecoder(r.Body).Decode(&body)
-		raw, err := io.ReadAll(r.Body)
+		cert, err := parseCertBody(r)
 		if err != nil {
-			logger.WithError(err).Error("failed to read request body")
+			logger.WithError(err).Error("failed to parse decode certificate in http body")
 			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		block, _ := pem.Decode(raw)
-		// block, err := b64Pem(body.Cert)
-		if err != nil {
-			logger.WithError(err).Error("failed to decode pem block")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			logger.WithError(err).Warn("failed to parse certificate from pem")
-			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		logger = logger.WithFields(logrus.Fields{
@@ -199,17 +201,7 @@ func ControlCert(authority ca.ResponderDB, certdb ca.CertStore) http.Handler {
 			"O":      strings.Join(cert.Subject.Organization, ","),
 		})
 
-		responder, err := authority.Find(ctx, cert)
-		if err != nil {
-			logger.WithError(err).Debug("failed to find certificate issuer and responder")
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		roots := x509.NewCertPool()
-		roots.AddCert(responder.CA)
-		_, err = cert.Verify(x509.VerifyOptions{
-			Roots: roots,
-		})
+		err = verify(ctx, authority, cert)
 		if err != nil {
 			logger.WithError(err).Warn("failed to verify certificate")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -226,12 +218,40 @@ func ControlCert(authority ca.ResponderDB, certdb ca.CertStore) http.Handler {
 	})
 }
 
+func ControlCertRevoke(authority ca.AuthorityStore, certdb ca.CertStore) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	})
+}
+
+func parseCertBody(r *http.Request) (*x509.Certificate, error) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(raw)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(block.Bytes)
+}
+
+func verify(ctx context.Context, au ca.ResponderDB, crt *x509.Certificate) error {
+	responder, err := au.Find(ctx, crt)
+	if err != nil {
+		return err
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(responder.CA)
+	_, err = crt.Verify(x509.VerifyOptions{Roots: roots})
+	return err
+}
+
 type responderBody struct {
+	CA     string `json:"ca"`
 	Signer struct {
 		Key  string `json:"key"`
 		Cert string `json:"cert"`
 	} `json:"signer"`
-	CA string `json:"ca"`
 }
 
 func b64Pem(raw string) (*pem.Block, error) {
@@ -277,4 +297,26 @@ func (rb *responderBody) toResponder(r *ca.Responder) error {
 		return fmt.Errorf("failed to parse signer key: %w", err)
 	}
 	return nil
+}
+
+func write(logger logrus.FieldLogger, w io.Writer, data []byte) {
+	_, err := w.Write(data)
+	if err != nil {
+		logger.WithError(err).Error("failed to write data")
+	}
+}
+
+type ocspKeyID ocsp.Request
+
+func (okid *ocspKeyID) Hash() crypto.Hash { return okid.HashAlgorithm }
+func (okid *ocspKeyID) Serial() ca.ID     { return okid.SerialNumber }
+func (okid *ocspKeyID) KeyHash() []byte   { return okid.IssuerKeyHash }
+
+func isOCSPSigner(crt *x509.Certificate) bool {
+	for _, u := range crt.ExtKeyUsage {
+		if u == x509.ExtKeyUsageOCSPSigning {
+			return true
+		}
+	}
+	return false
 }

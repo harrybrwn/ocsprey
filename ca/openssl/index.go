@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,96 +16,127 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"golang.org/x/crypto/ocsp"
 	"gopkg.hrry.dev/ocsprey/ca"
 	"gopkg.hrry.dev/ocsprey/internal/certutil"
+	"gopkg.hrry.dev/ocsprey/internal/ocspext"
 )
 
 //go:generate sh testdata/gen.sh
 
+type indexKey [21]byte
+
 type IndexTXT struct {
-	Hash        crypto.Hash
-	NewCertsDir string
-	SerialFile  string
-	files       []string
-	certs       map[string]*indexEntry
-	mu          sync.RWMutex
-	fileMu      sync.Mutex // protects index and serial files
+	fileMu sync.Mutex // protects index and serial files
+
+	// Certs is a map of one index key to one certificate entry
+	certs map[indexKey]indexEntry
+	mu    sync.RWMutex
+
+	cfgs      []IndexConfig
+	issuerIDs map[string]uint8
+	issuerMu  sync.Mutex
 }
 
 type IndexConfig struct {
 	NewCerts string
 	Serial   string
 	Index    string
+	CA       string
+	Hash     crypto.Hash
 }
 
-type IndexDBOption func(*IndexTXT)
-
-func WithSerialFile(filename string) IndexDBOption {
-	return func(it *IndexTXT) { it.SerialFile = filename }
-}
-
-func WithNewCertsDir(dir string) IndexDBOption { return func(it *IndexTXT) { it.NewCertsDir = dir } }
-func WithHashFunc(h crypto.Hash) IndexDBOption { return func(it *IndexTXT) { it.Hash = h } }
-
-func OpenIndex(indexFile string, options ...IndexDBOption) (*IndexTXT, error) {
-	f, err := os.Open(indexFile)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	entries, err := parseIndex(f)
-	if err != nil {
-		return nil, err
-	}
-	certs := make(map[string]*indexEntry, len(entries))
-	for _, entry := range entries {
-		certs[entry.serial.Text(serialBase)] = entry
-	}
+func EmptyIndex() *IndexTXT {
 	txt := IndexTXT{
-		Hash:        crypto.SHA1,
-		NewCertsDir: "./certs",
-		files:       make([]string, 0),
-		certs:       certs,
-	}
-	for _, o := range options {
-		o(&txt)
-	}
-	txt.files = append(txt.files, indexFile)
-	return &txt, nil
-}
-
-func EmptyIndex(options ...IndexDBOption) *IndexTXT {
-	txt := IndexTXT{
-		Hash:        crypto.SHA1,
-		NewCertsDir: "./certs",
-		SerialFile:  "./ca.crl",
-		certs:       make(map[string]*indexEntry),
-		files:       make([]string, 0),
-	}
-	for _, o := range options {
-		o(&txt)
+		certs:     make(map[indexKey]indexEntry),
+		issuerIDs: make(map[string]uint8),
 	}
 	return &txt
 }
 
-const serialBase = 16
+func (txt *IndexTXT) AddIndex(cfg *IndexConfig) error {
+	if cfg.Hash == 0 {
+		cfg.Hash = crypto.SHA1
+	}
 
-func (txt *IndexTXT) Get(ctx context.Context, serial *big.Int) (*x509.Certificate, ca.CertStatus, error) {
-	key := serial.Text(serialBase)
+	txt.issuerMu.Lock() // make sure the order is serializable
+	ix := uint8(len(txt.cfgs))
+	txt.issuerMu.Unlock()
+	ca, err := certutil.OpenCertificate(cfg.CA)
+	if err != nil {
+		return err
+	}
+	// Should contain the hash of the public key
+	if ca.SubjectKeyId == nil {
+		return errors.New("CA certificate has no subject key ID")
+	}
+	h := cfg.Hash.New()
+	// This will correspond with IssuerKeyHash for OCSP requests.
+	if err = ocspext.PublicKeyHash(ca, h); err != nil {
+		return err
+	}
+	keyID := hex.EncodeToString(h.Sum(nil))
+	_, found := txt.issuerIDs[keyID]
+	if found {
+		return errors.New("ca already loaded")
+	}
+
+	f, err := os.Open(cfg.Index)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	entries, err := parseIndex(f)
+	if err != nil {
+		return err
+	}
+	var k indexKey
+	txt.mu.Lock()
+	for _, entry := range entries {
+		k = key(entry.serial, ix)
+		txt.certs[k] = *entry
+	}
+	txt.mu.Unlock()
+
+	txt.issuerMu.Lock()
+	txt.issuerIDs[keyID] = ix
+	txt.cfgs = append(txt.cfgs, *cfg)
+	txt.issuerMu.Unlock()
+	return nil
+}
+
+func key(serial ca.ID, ix uint8) indexKey {
+	// Each key encodes the serial number an an index of the configuration that
+	// holds metadata about the certificate issuer's openssl index database.
+	//
+	// | serial number | index id |
+	// | 20 bytes      | 1 byte   |
+	var (
+		k indexKey
+		n = big.NewInt(0).SetBytes(serial.Bytes())
+	)
+	const width = 8 * uint(unsafe.Sizeof(ix))
+	n.Lsh(n, width)
+	n.Or(n, big.NewInt(int64(ix)))
+	copy(k[:], n.Bytes())
+	return k
+}
+
+func (txt *IndexTXT) Get(ctx context.Context, id ca.KeyID) (*x509.Certificate, ca.CertStatus, error) {
+	ix, err := txt.getIndex(id.KeyHash())
+	if err != nil {
+		return nil, ca.Invalid, err
+	}
+	key := key(id.Serial(), ix)
 	txt.mu.RLock()
 	entry, ok := txt.certs[key]
 	txt.mu.RUnlock()
 	if !ok {
 		return nil, ca.Invalid, ca.ErrCertNotFound
 	}
-	var file string
-	if len(entry.filename) > 0 {
-		file = entry.filename
-	} else {
-		file = filepath.Join(txt.NewCertsDir, fmt.Sprintf("%s.pem", strings.ToUpper(key)))
-	}
+	file := txt.entryFile(&entry, ix)
 	cert, err := certutil.OpenCertificate(file)
 	if err != nil {
 		return nil, entry.Status, err
@@ -112,8 +144,12 @@ func (txt *IndexTXT) Get(ctx context.Context, serial *big.Int) (*x509.Certificat
 	return cert, entry.Status, nil
 }
 
-func (txt *IndexTXT) Status(ctx context.Context, serial *big.Int) (ca.CertStatus, error) {
-	key := serial.Text(serialBase)
+func (txt *IndexTXT) Status(ctx context.Context, id ca.KeyID) (ca.CertStatus, error) {
+	ix, err := txt.getIndex(id.KeyHash())
+	if err != nil {
+		return ca.Invalid, err
+	}
+	key := key(id.Serial(), ix)
 	txt.mu.RLock()
 	entry, ok := txt.certs[key]
 	txt.mu.RUnlock()
@@ -123,21 +159,20 @@ func (txt *IndexTXT) Status(ctx context.Context, serial *big.Int) (ca.CertStatus
 	return entry.Status, nil
 }
 
-func (txt *IndexTXT) Del(ctx context.Context, serial *big.Int) error {
-	key := serial.Text(serialBase)
+func (txt *IndexTXT) Del(ctx context.Context, id ca.KeyID) error {
+	ix, err := txt.getIndex(id.KeyHash())
+	if err != nil {
+		return err
+	}
+	key := key(id.Serial(), ix)
 	txt.mu.RLock()
 	entry, ok := txt.certs[key]
 	delete(txt.certs, key)
 	txt.mu.RUnlock()
-	var file string
 	if !ok {
 		return nil
-	} else if len(entry.filename) > 0 {
-		file = entry.filename
-	} else {
-		file = filepath.Join(txt.NewCertsDir, fmt.Sprintf("%s.pem", strings.ToUpper(key)))
 	}
-	return os.Remove(file)
+	return os.Remove(txt.entryFile(&entry, ix))
 }
 
 func (txt *IndexTXT) Put(ctx context.Context, cert *x509.Certificate) error {
@@ -152,16 +187,20 @@ func (txt *IndexTXT) Put(ctx context.Context, cert *x509.Certificate) error {
 		revocation = &now
 		status = ca.Expired
 	}
-
+	ix, err := txt.getIndex(cert.AuthorityKeyId)
+	if err != nil {
+		return err
+	}
 	if cert.SerialNumber == nil || cert.SerialNumber.Int64() == 0 {
-		cert.SerialNumber, err = txt.incrementSerial()
+		cert.SerialNumber, err = txt.incrementSerial(ix)
 		if err != nil {
 			return err
 		}
 	}
-	key := cert.SerialNumber.Text(serialBase)
-	certfile := filepath.Join(txt.NewCertsDir, fmt.Sprintf("%s.pem", strings.ToUpper(key)))
-	if err = certutil.WriteCertificate(certfile, cert.Raw); err != nil {
+
+	key := key(cert.SerialNumber, ix)
+	file := txt.filename(cert.SerialNumber, ix)
+	if err = certutil.WriteCertificate(file, cert.Raw); err != nil {
 		return err
 	}
 	entry := indexEntry{
@@ -169,15 +208,30 @@ func (txt *IndexTXT) Put(ctx context.Context, cert *x509.Certificate) error {
 		expiration: cert.NotAfter,
 		revocation: revocation,
 		serial:     cert.SerialNumber,
-		filename:   certfile,
+		filename:   file,
 	}
 	txt.mu.Lock()
-	txt.certs[key] = &entry
+	txt.certs[key] = entry
 	txt.mu.Unlock()
 	return nil
 }
 
-func (txt *IndexTXT) Revoke(ctx context.Context, serial *big.Int) error {
+func (txt *IndexTXT) Revoke(ctx context.Context, id ca.KeyID) error {
+	ix, err := txt.getIndex(id.KeyHash())
+	if err != nil {
+		return err
+	}
+	key := key(id.Serial(), ix)
+	txt.mu.RLock()
+	e, found := txt.certs[key]
+	txt.mu.RUnlock()
+	if !found {
+		return errors.New("cert not found")
+	}
+	e.Status = ca.Revoked
+	txt.mu.Lock()
+	txt.certs[key] = e
+	txt.mu.Unlock()
 	return nil
 }
 
@@ -186,10 +240,38 @@ func (txt *IndexTXT) Sync() error {
 	panic("not implemented")
 }
 
-func (txt *IndexTXT) incrementSerial() (*big.Int, error) {
+func (txt *IndexTXT) filename(serial *big.Int, ix uint8) string {
+	h := hex.EncodeToString(serial.Bytes())
+	cfg := txt.cfgs[ix]
+	return filepath.Join(
+		cfg.NewCerts,
+		fmt.Sprintf("%s.pem", strings.ToUpper(h)),
+	)
+}
+
+func (txt *IndexTXT) entryFile(entry *indexEntry, ix uint8) string {
+	if len(entry.filename) > 0 {
+		return entry.filename
+	}
+	return txt.filename(entry.serial, ix)
+}
+
+func (txt *IndexTXT) getIndex(keyHash []byte) (uint8, error) {
+	k := hex.EncodeToString(keyHash)
+	txt.issuerMu.Lock()
+	ix, found := txt.issuerIDs[k]
+	txt.issuerMu.Unlock()
+	if !found {
+		return 0, errors.New("failed to find issuer index")
+	}
+	return ix, nil
+}
+
+func (txt *IndexTXT) incrementSerial(ix uint8) (*big.Int, error) {
 	txt.fileMu.Lock()
 	defer txt.fileMu.Unlock()
-	bytes, err := os.ReadFile(txt.SerialFile)
+	cfg := txt.cfgs[ix]
+	bytes, err := os.ReadFile(cfg.Serial)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +281,7 @@ func (txt *IndexTXT) incrementSerial() (*big.Int, error) {
 	}
 	// TODO update the file serial.old
 	serial := big.NewInt(n)
-	file, err := os.OpenFile(txt.SerialFile, os.O_WRONLY|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(cfg.Serial, os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return serial, err
 	}
