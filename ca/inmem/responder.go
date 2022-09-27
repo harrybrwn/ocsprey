@@ -1,4 +1,4 @@
-package main
+package inmem
 
 import (
 	"context"
@@ -11,6 +11,14 @@ import (
 	"gopkg.hrry.dev/ocsprey/ca"
 	"gopkg.hrry.dev/ocsprey/internal/ocspext"
 )
+
+func NewResponderDB(hash crypto.Hash) *issuerDB {
+	return &issuerDB{
+		responders:     make(map[string]ca.Responder),
+		hasher:         hash,
+		subjectHashSet: make(map[string]string),
+	}
+}
 
 type issuerDB struct {
 	responders map[string]ca.Responder
@@ -28,7 +36,7 @@ func (db *issuerDB) get(key []byte) (*ca.Responder, error) {
 	r, ok := db.responders[k]
 	db.mu.RUnlock()
 	if !ok {
-		return nil, errors.New("issuer not found")
+		return nil, ca.ErrCertNotFound
 	}
 	return &r, nil
 }
@@ -44,13 +52,13 @@ func (db *issuerDB) Find(ctx context.Context, leaf *x509.Certificate) (*ca.Respo
 	}
 	subjHash := hex.EncodeToString(h.Sum(nil))
 	db.mu.RLock()
-	keyid, ok := db.subjectHashSet[subjHash]
+	keyID, ok := db.subjectHashSet[subjHash]
 	db.mu.RUnlock()
 	if !ok {
 		return nil, errors.New("could not find CA using issuer DN")
 	}
 	db.mu.RLock()
-	r, ok := db.responders[keyid]
+	r, ok := db.responders[keyID]
 	db.mu.RUnlock()
 	if !ok {
 		return nil, ca.ErrCertNotFound

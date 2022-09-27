@@ -42,10 +42,6 @@ type CertStore interface {
 	Revoke(context.Context, KeyID) error
 }
 
-type MultiCAStore interface {
-	Store(context.Context, []byte) (CertStore, error)
-}
-
 type KeyPair struct {
 	Key  crypto.Signer
 	Cert *x509.Certificate
@@ -57,23 +53,12 @@ type Responder struct {
 }
 
 type ResponderDB interface {
+	// Get a responder by key hash.
 	Get(context.Context, []byte) (*Responder, error)
+	// Insert a new responder
 	Put(context.Context, *Responder) error
+	// Delete a responder
 	Del(context.Context, []byte) error
 	// Find the responder keys given a leaf certificate
 	Find(context.Context, *x509.Certificate) (*Responder, error)
-}
-
-// AuthorityDB describes a structure that holds issuer certificates which
-// includes CAs and intermediate CAs.
-type AuthorityStore interface {
-	// Issuer will take a leaf certificate and return the issuer of that
-	// certificate if it exists.
-	Issuer(*x509.Certificate) (*x509.Certificate, error)
-	// Get will get a certificate using the keyID
-	Get(keyID []byte) (*x509.Certificate, error)
-	// Put will insert a new CA certificate into the store.
-	Put(*x509.Certificate) error
-	// Del will delete a certificate
-	Del(keyID []byte) error
 }
