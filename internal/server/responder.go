@@ -18,7 +18,7 @@ import (
 func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		logger := log.ContextLogger(ctx)
+		logger := log.ContextLogger(ctx).WithField("component", "http-ocsp-responder")
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			logger.WithError(err).Warn("failed to read http request body")

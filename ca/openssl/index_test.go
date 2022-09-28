@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -96,7 +97,7 @@ func TestParseIndexFile(t *testing.T) {
 	}
 }
 
-func TestOpenIndex(t *testing.T) {
+func TestNewIndex(t *testing.T) {
 	txt := EmptyIndex()
 	err := txt.AddIndex(&IndexConfig{
 		Index:    filepath.Join(testRoot, "db/index.txt"),
@@ -217,6 +218,59 @@ func TestIndexTXT_Put(t *testing.T) {
 	}
 }
 
+func TestIndexTXT_CrudErrors(t *testing.T) {
+	txt := EmptyIndex()
+	ctx := context.Background()
+	cfg := &IndexConfig{
+		Index:    filepath.Join(testRoot, "db/index.txt"),
+		NewCerts: filepath.Join(testRoot, "db/certs"),
+		Serial:   filepath.Join(testRoot, "db/serial"),
+		CA:       filepath.Join(testRoot, "ca.crt"),
+	}
+	err := txt.AddIndex(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootCA := must(certutil.OpenCertificate(cfg.CA))
+	_, _, err = txt.Get(ctx, newKeyID(big.NewInt(0x1001), rootCA.AuthorityKeyId))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = txt.Get(ctx, newKeyID(big.NewInt(0x1001), []byte("some invalid key id")))
+	if err == nil {
+		t.Error("expected error")
+	}
+	_, err = txt.Status(ctx, newKeyID(big.NewInt(0x1001), []byte("some invalid key id")))
+	if err == nil {
+		t.Error("expected error")
+	}
+	err = txt.Del(ctx, newKeyID(big.NewInt(0x1001), []byte("some invalid key id")))
+	if err == nil {
+		t.Error("expected error")
+	}
+	err = txt.Revoke(ctx, newKeyID(big.NewInt(0x1001), []byte("some invalid key id")))
+	if err == nil {
+		t.Error("expected error")
+	}
+	_, _, err = txt.Get(ctx, newKeyID(big.NewInt(0x12341001), rootCA.AuthorityKeyId))
+	if !errors.Is(err, ca.ErrCertNotFound) {
+		t.Error("expected \"cert not found\" error")
+	}
+	_, err = txt.Status(ctx, newKeyID(big.NewInt(0x12341001), rootCA.AuthorityKeyId))
+	if !errors.Is(err, ca.ErrCertNotFound) {
+		t.Error("expected \"cert not found\" error")
+	}
+	err = txt.Del(ctx, newKeyID(big.NewInt(0x12341001), rootCA.AuthorityKeyId))
+	if !errors.Is(err, ca.ErrCertNotFound) {
+		t.Error("expected \"cert not found\" error")
+	}
+	err = txt.Revoke(ctx, newKeyID(big.NewInt(0x12341001), rootCA.AuthorityKeyId))
+	if !errors.Is(err, ca.ErrCertNotFound) {
+		t.Error("expected \"cert not found\" error")
+	}
+}
+
 func TestAddIndex(t *testing.T) {
 	txt := EmptyIndex()
 	for i, root := range []string{
@@ -275,6 +329,39 @@ func TestAddIndex_Err(t *testing.T) {
 	}
 }
 
+func TestIndexTXT_Revoke(t *testing.T) {
+	txt := EmptyIndex()
+	err := txt.AddIndex(&IndexConfig{
+		Index:    filepath.Join(testRoot, "db/index.txt"),
+		NewCerts: filepath.Join(testRoot, "db/certs"),
+		Serial:   filepath.Join(testRoot, "db/serial"),
+		CA:       filepath.Join(testRoot, "ca.crt"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := must(certutil.OpenCertificate(filepath.Join(testRoot, "ca.crt")))
+	ctx := context.Background()
+	status, err := txt.Status(ctx, newKeyID(big.NewInt(0x1003), root.SubjectKeyId))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ca.Valid {
+		t.Error("expected status valid")
+	}
+	err = txt.Revoke(ctx, newKeyID(big.NewInt(0x1003), root.SubjectKeyId))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err = txt.Status(ctx, newKeyID(big.NewInt(0x1003), root.SubjectKeyId))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ca.Revoked {
+		t.Error("expected status revoked")
+	}
+}
+
 func randomSerial() *big.Int {
 	var (
 		buf [20]byte
@@ -285,4 +372,11 @@ func randomSerial() *big.Int {
 		panic(err)
 	}
 	return n.SetBytes(buf[:])
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

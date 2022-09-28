@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"golang.org/x/crypto/ocsp"
 	"gopkg.hrry.dev/ocsprey/ca"
@@ -29,8 +28,6 @@ import (
 type indexKey [21]byte
 
 type IndexTXT struct {
-	fileMu sync.Mutex // protects index and serial files
-
 	// Certs is a map of one index key to one certificate entry
 	certs map[indexKey]indexEntry
 	mu    sync.RWMutex
@@ -113,14 +110,8 @@ func key(serial ca.ID, ix uint8) indexKey {
 	//
 	// | serial number | index id |
 	// | 20 bytes      | 1 byte   |
-	var (
-		k indexKey
-		n = big.NewInt(0).SetBytes(serial.Bytes())
-	)
-	const width = 8 * uint(unsafe.Sizeof(ix))
-	n.Lsh(n, width)
-	n.Or(n, big.NewInt(int64(ix)))
-	copy(k[:], n.Bytes())
+	var k indexKey
+	copy(k[:], append(serial.Bytes(), ix))
 	return k
 }
 
@@ -170,7 +161,7 @@ func (txt *IndexTXT) Del(ctx context.Context, id ca.KeyID) error {
 	delete(txt.certs, key)
 	txt.mu.RUnlock()
 	if !ok {
-		return nil
+		return ca.ErrCertNotFound
 	}
 	return os.Remove(txt.entryFile(&entry, ix))
 }
@@ -226,7 +217,7 @@ func (txt *IndexTXT) Revoke(ctx context.Context, id ca.KeyID) error {
 	e, found := txt.certs[key]
 	txt.mu.RUnlock()
 	if !found {
-		return errors.New("cert not found")
+		return ca.ErrCertNotFound
 	}
 	e.Status = ca.Revoked
 	txt.mu.Lock()
@@ -268,8 +259,6 @@ func (txt *IndexTXT) getIndex(keyHash []byte) (uint8, error) {
 }
 
 func (txt *IndexTXT) incrementSerial(ix uint8) (*big.Int, error) {
-	txt.fileMu.Lock()
-	defer txt.fileMu.Unlock()
 	cfg := txt.cfgs[ix]
 	bytes, err := os.ReadFile(cfg.Serial)
 	if err != nil {

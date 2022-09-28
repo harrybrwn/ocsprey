@@ -71,10 +71,7 @@ func newRootCmd() *cobra.Command {
 }
 
 func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
-	var (
-		port       = toInt(env("SERVER_PORT", "8888"))
-		newCertDir = env("SERVER_NEW_CERTS_DIR", ".ocsprey/certs")
-	)
+	var port = toInt(env("SERVER_PORT", "8888"))
 	c := cobra.Command{
 		Use:   "server",
 		Short: "OCSP responder server",
@@ -110,6 +107,11 @@ func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 					return err
 				}
 			}
+			if len(conf.OpenSSL) > 0 {
+				if err = certdb.WatchFiles(ctx); err != nil {
+					return err
+				}
+			}
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("/", server.Responder(authority, certdb))
@@ -128,7 +130,6 @@ func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 	}
 	f := c.Flags()
 	f.IntVarP(&port, "port", "p", port, "server port")
-	f.StringVar(&newCertDir, "new-certs-dir", newCertDir, "directory to write new certificates to")
 	return &c
 }
 

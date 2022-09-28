@@ -59,9 +59,17 @@ func TestServer(t *testing.T) {
 		}
 	}()
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			t.Error(err)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			// t.Error(err)
+			panic(err)
 		}
 	}()
 	// TODO do tests here
+}
+
+func TestNewRootCmd(t *testing.T) {
+	root := newRootCmd()
+	if root == nil {
+		t.Error("wow this test wasn't meaningless... newRootCmd should not return nil")
+	}
 }
