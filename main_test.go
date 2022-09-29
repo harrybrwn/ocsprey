@@ -31,42 +31,39 @@ import (
 //go:generate mockgen -package mockca -destination internal/mocks/mockca/mockca.go gopkg.hrry.dev/ocsprey/ca ResponderDB,CertStore
 
 var logger = logrus.New()
+var testConfig = Config{
+	OpenSSL: []OpenSSLIndexConfig{
+		{BaseDir: "testdata/pki0"},
+		{BaseDir: "testdata/pki1"},
+		{BaseDir: "testdata/pki2"},
+	},
+}
 
-func init() { logger.SetOutput(io.Discard) }
+func init() {
+	logger.SetOutput(io.Discard)
+	for i := range testConfig.OpenSSL {
+		testConfig.OpenSSL[i].RootCA = "ca.crt"
+		testConfig.OpenSSL[i].IndexFile = "db/index.txt"
+		testConfig.OpenSSL[i].SerialFile = "db/serial"
+		testConfig.OpenSSL[i].NewCertsDir = "db/certs"
+		testConfig.OpenSSL[i].OCSPResponder.Cert = "out/ocsp-responder.crt"
+		testConfig.OpenSSL[i].OCSPResponder.Key = "out/ocsp-responder.key"
+	}
+}
 
 func TestServer(t *testing.T) {
 	const hash = crypto.SHA1
 	ctx := log.Stash(context.Background(), logger)
 	txt := openssl.EmptyIndex()
 	authority := inmem.NewResponderDB(hash)
-	for i := 0; i < 3; i++ {
-		base := filepath.Join("testdata", fmt.Sprintf("pki%d", i))
-		err := txt.AddIndex(&openssl.IndexConfig{
-			NewCerts: filepath.Join(base, "db/certs"),
-			Serial:   filepath.Join(base, "db/serial"),
-			Index:    filepath.Join(base, "db/index.txt"),
-			CA:       filepath.Join(base, "ca.crt"),
-			Hash:     hash,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		responder, err := openResponderKeys(
-			filepath.Join(base, "ca.crt"),
-			filepath.Join(base, "out/ocsp-responder.crt"),
-			filepath.Join(base, "out/ocsp-responder.key"),
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = authority.Put(ctx, responder)
-		if err != nil {
-			t.Fatal(err)
-		}
+	err := addOpenSSLConfigs(ctx, txt, authority, &testConfig)
+	if err != nil {
+		t.Fatal(err)
 	}
+
 	txt.WatchFiles(ctx)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", server.Responder(authority, txt))
+	mux.Handle("/", server.Responder(authority, txt))
 	mux.Handle("/issuer", server.ControlIssuer(authority))
 	mux.Handle("/leaf", server.ControlCert(authority, txt))
 	mux.Handle("/leaf/revoke", server.ControlCertRevoke(authority, txt))
@@ -184,8 +181,6 @@ func (o *opensslCLI) cmd(prod string, args ...string) *exec.Cmd {
 		fmt.Sprintf("OPENSSL_CONF=%s", o.config),
 		fmt.Sprintf("CA_ROOT=%s", o.root),
 	)
-	// cmd.Stdout = os.Stdout
-	// cmd.Stderr = os.Stderr
 	return cmd
 }
 

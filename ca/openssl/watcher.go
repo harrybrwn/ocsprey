@@ -37,9 +37,11 @@ func (w *watcher) watch(ctx context.Context) {
 	defer w.watcher.Close()
 	logger := log.ContextLogger(ctx).
 		WithField("component", "openssl-index-file-watcher")
+	logger.WithField("files", w.watcher.WatchList()).Info("watching for file changes")
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Info("closing file watcher")
 			return
 		case event, ok := <-w.watcher.Events:
 			if !ok {
