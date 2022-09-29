@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	_ "github.com/golang/mock/gomock"
 	"github.com/sirupsen/logrus"
@@ -93,6 +94,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(time.Millisecond * 100)
 	resp, err = check(srv.URL, cli.root, fmt.Sprintf("out/%s.crt", name))
 	if err != nil {
 		t.Error(err)
@@ -104,6 +106,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	time.Sleep(time.Millisecond * 100)
 	resp, err = check(srv.URL, cli.root, fmt.Sprintf("out/%s.crt", name))
 	if err != nil {
 		t.Error(err)
