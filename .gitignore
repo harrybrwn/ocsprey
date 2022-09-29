@@ -1,24 +1,27 @@
-*.log
-test.sh
-client.sh
-up.sh
-build.sh
+!testdata/gen.sh
+!ca/openssl/testdata/gen.sh
 
 # Config
 .vscode/
 .ocsprey/
+/bin/
+/ocsprey
 
 # Test Data
+*.sh
+*.log
 *.crt
 *.key
 *.csr
 *.pem
+*.srl
 index.txt
 index.txt.old
 index.txt.attr
 index.txt.attr.old
 serial
 serial.old
+gocoverage.txt
 
 # For mac people
 .DS_Store

@@ -175,6 +175,9 @@ func b64Pem(raw string) (*pem.Block, error) {
 		return nil, fmt.Errorf("base64 decode failure: %w", err)
 	}
 	block, _ := pem.Decode(dec)
+	if block == nil {
+		return nil, errors.New("failed to decode pem block")
+	}
 	return block, nil
 }
 

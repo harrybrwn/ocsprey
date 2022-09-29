@@ -33,8 +33,8 @@ type KeyID interface {
 
 type ID interface{ Bytes() []byte }
 
-// TODO add a certificate wrapper type
-
+// TODO Add a certificate wrapper type
+// TODO Need to be able to get revocation reason
 type CertStore interface {
 	Get(context.Context, KeyID) (*x509.Certificate, CertStatus, error)
 	Del(context.Context, KeyID) error

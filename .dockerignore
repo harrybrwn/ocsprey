@@ -1,0 +1,29 @@
+# Docker config
+.dockerignore
+Dockerfile
+docker-compose.yml
+docker-bake.hcl
+docker-bake.json
+
+# Test Data
+**/*.sh
+**/*.log
+**/*.crt
+**/*.key
+**/*.csr
+**/*.pem
+**/*.srl
+**/index.txt
+**/index.txt.old
+**/index.txt.attr
+**/index.txt.attr.old
+**/serial
+**/serial.old
+**/*.log
+**/gocoverage.txt
+!testdata/gen.sh
+!ca/openssl/testdata/gen.sh
+
+# Misc
+.vscode/
+**/.DS_Store

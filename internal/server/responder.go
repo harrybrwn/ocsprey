@@ -15,6 +15,8 @@ import (
 	"gopkg.hrry.dev/ocsprey/internal/ocspext"
 )
 
+var timeNow = time.Now
+
 func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -35,7 +37,7 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		}
 
 		var (
-			now      = time.Now()
+			now      = timeNow()
 			template = ocsp.Response{
 				Status:           ocsp.Unknown,
 				IssuerHash:       req.HashAlgorithm,
@@ -57,7 +59,7 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		responder, err := authority.Get(ctx, req.IssuerKeyHash)
 		if err != nil {
 			logger.WithError(err).Warn("issuer not found")
-			w.WriteHeader(404)
+			w.WriteHeader(http.StatusNotFound)
 			write(logger, w, ocsp.InternalErrorErrorResponse)
 			return
 		}
@@ -97,7 +99,7 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 			template.Status = ocsp.Unknown
 			goto response
 		}
-		now = time.Now()
+		now = timeNow()
 		if now.After(cert.NotAfter) {
 			template.Status = ocsp.Unknown
 			logger.Info("certificate is expired")

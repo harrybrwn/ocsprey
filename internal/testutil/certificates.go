@@ -55,6 +55,7 @@ func GenCA() (*ca.KeyPair, error) {
 func GenIntermediate(issuer *ca.KeyPair) (*ca.KeyPair, error) {
 	return genCert(
 		issuer,
+		true,
 		x509.KeyUsageCertSign|x509.KeyUsageKeyEncipherment,
 		true,
 		nil,
@@ -64,6 +65,7 @@ func GenIntermediate(issuer *ca.KeyPair) (*ca.KeyPair, error) {
 func GenLeaf(issuer *ca.KeyPair) (*ca.KeyPair, error) {
 	return genCert(
 		issuer,
+		false,
 		x509.KeyUsageDataEncipherment,
 		false,
 		nil,
@@ -73,20 +75,21 @@ func GenLeaf(issuer *ca.KeyPair) (*ca.KeyPair, error) {
 func GenOCSP(issuer *ca.KeyPair) (*ca.KeyPair, error) {
 	return genCert(
 		issuer,
+		false,
 		x509.KeyUsageDataEncipherment,
 		false,
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageOCSPSigning},
 	)
 }
 
-func genCert(issuer *ca.KeyPair, keyUsage x509.KeyUsage, pathLenZero bool, extKeyUsage []x509.ExtKeyUsage) (*ca.KeyPair, error) {
+func genCert(issuer *ca.KeyPair, isCA bool, keyUsage x509.KeyUsage, pathLenZero bool, extKeyUsage []x509.ExtKeyUsage) (*ca.KeyPair, error) {
 	k, err := rsa.GenerateKey(rand.Reader, KeySize)
 	if err != nil {
 		return nil, err
 	}
 	template := x509.Certificate{
 		Version:      3,
-		IsCA:         true,
+		IsCA:         isCA,
 		SerialNumber: randomSerial(),
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(time.Hour * 24 * 365),
@@ -97,6 +100,7 @@ func genCert(issuer *ca.KeyPair, keyUsage x509.KeyUsage, pathLenZero bool, extKe
 		KeyUsage:              keyUsage,
 		BasicConstraintsValid: true,
 		MaxPathLenZero:        pathLenZero,
+		ExtKeyUsage:           extKeyUsage,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, issuer.Cert, k.Public(), issuer.Key)
 	if err != nil {

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto"
 	"crypto/x509"
 	"io"
 
@@ -19,9 +18,8 @@ func write(logger logrus.FieldLogger, w io.Writer, data []byte) {
 
 type ocspKeyID ocsp.Request
 
-func (okid *ocspKeyID) Hash() crypto.Hash { return okid.HashAlgorithm }
-func (okid *ocspKeyID) Serial() ca.ID     { return okid.SerialNumber }
-func (okid *ocspKeyID) KeyHash() []byte   { return okid.IssuerKeyHash }
+func (okid *ocspKeyID) Serial() ca.ID   { return okid.SerialNumber }
+func (okid *ocspKeyID) KeyHash() []byte { return okid.IssuerKeyHash }
 
 func isOCSPSigner(crt *x509.Certificate) bool {
 	for _, u := range crt.ExtKeyUsage {
