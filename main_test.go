@@ -61,7 +61,9 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	txt.WatchFiles(ctx)
+	if err = txt.WatchFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/", server.Responder(authority, txt))
 	mux.Handle("/issuer", server.ControlIssuer(authority))
@@ -196,7 +198,10 @@ func randInt() int {
 		buf [4]byte
 		n   int
 	)
-	rand.Read(buf[:])
+	_, err := rand.Read(buf[:])
+	if err != nil {
+		panic(err)
+	}
 	for i := 0; i < 4; i++ {
 		n = (n << 8) | int(buf[i])
 	}

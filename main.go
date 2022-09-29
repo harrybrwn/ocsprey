@@ -121,7 +121,12 @@ func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 				BaseContext: func(net.Listener) context.Context { return ctx },
 			}
 			logger.Infof("listening on [::]:%d", port)
-			go srv.ListenAndServe()
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					logger.WithError(err).Error("failed to start server")
+					stop()
+				}
+			}()
 			<-ctx.Done()
 
 			logger.Info("shutting down server")
