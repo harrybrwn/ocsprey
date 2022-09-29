@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -53,6 +54,9 @@ func init() {
 
 func TestServer(t *testing.T) {
 	const hash = crypto.SHA1
+	logger.SetOutput(os.Stdout)
+	logger.Level = logrus.TraceLevel
+	defer logger.SetOutput(io.Discard)
 	ctx := log.Stash(context.Background(), logger)
 	txt := openssl.EmptyIndex()
 	authority := inmem.NewResponderDB(hash)
@@ -94,7 +98,7 @@ func TestServer(t *testing.T) {
 		t.Error(err)
 	}
 	if resp.Status != ocsp.Good {
-		t.Error("expected status good")
+		t.Errorf("expected status good (%d), got %d", ocsp.Good, resp.Status)
 	}
 	err = cli.revoke(name)
 	if err != nil {
@@ -105,7 +109,7 @@ func TestServer(t *testing.T) {
 		t.Error(err)
 	}
 	if resp.Status != ocsp.Revoked {
-		t.Error("expected status revoked")
+		t.Errorf("expected status revoked (%d), got %d", ocsp.Revoked, resp.Status)
 	}
 }
 
