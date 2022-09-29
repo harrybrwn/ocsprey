@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -36,8 +37,11 @@ func newRootCmd() *cobra.Command {
 	var (
 		logger     = logrus.New()
 		logLevel   = env("LOG_LEVEL", "debug")
-		configFile string
-		config     = Config{hash: crypto.SHA1}
+		logFormat  = env("LOG_FORMAT", "text")
+		configFile = env("OCSP_CONFIG_FILE", "")
+		config     = Config{
+			hash: crypto.SHA1,
+		}
 	)
 	c := cobra.Command{
 		Use:           "ocspray",
@@ -50,6 +54,14 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			logger.Level = lvl
+			switch strings.ToLower(logFormat) {
+			case "text":
+				logger.Formatter = &logrus.TextFormatter{}
+			case "json":
+				logger.Formatter = &logrus.JSONFormatter{}
+			default:
+				return fmt.Errorf("unknown log format %q", logFormat)
+			}
 			if exists(configFile) {
 				raw, err := os.ReadFile(configFile)
 				if err != nil {
@@ -64,13 +76,11 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	ctx := log.Stash(context.Background(), logger)
-	c.SetContext(ctx)
-	c.AddCommand(
-		newServerCmd(&config, logger),
-	)
+	c.SetContext(log.Stash(context.Background(), logger))
+	c.AddCommand(newServerCmd(&config, logger))
 	f := c.PersistentFlags()
 	f.StringVar(&logLevel, "log-level", logLevel, "set the logging level (trace, debug, info, warn, error)")
+	f.StringVar(&logFormat, "log-format", logFormat, "set the logging format (text, json)")
 	f.StringVarP(&configFile, "config", "c", configFile, "configuration file path")
 	return &c
 }
