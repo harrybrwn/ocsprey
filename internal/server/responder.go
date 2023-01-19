@@ -80,10 +80,10 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 		case ca.Revoked:
 			template.Status = ocsp.Revoked
 			template.RevokedAt = cert.NotAfter
-			logger.Info("certificate is revoked")
+			logger.Debug("certificate is revoked")
 			goto response
 		case ca.Expired:
-			logger.Info("certificate status of expired")
+			logger.Debug("certificate status of expired")
 			template.Status = ocsp.Unknown
 			goto response
 		default:

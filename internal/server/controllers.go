@@ -53,12 +53,16 @@ func ControlIssuer(authority ca.ResponderDB) http.Handler {
 				return
 			}
 			err = authority.Put(ctx, &rp)
-			if err != nil {
+			switch err {
+			case nil:
+				logger.Info("ocsp responder added")
+			case ca.ErrCertExists:
+				logger.Debug("issuer certificate already exists")
+				w.WriteHeader(http.StatusConflict)
+			default:
 				logger.WithError(err).Error("failed to insert new responder")
 				w.WriteHeader(http.StatusInternalServerError)
-				return
 			}
-			logger.Info("ocsp responder added")
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -95,7 +99,17 @@ func ControlCert(authority ca.ResponderDB, certdb ca.CertStore) http.Handler {
 			return
 		}
 		err = certdb.Put(ctx, cert)
-		if err != nil {
+		switch err {
+		case nil:
+			break
+		case ca.ErrCertExists:
+			logger.Debug("certificate already exists")
+			w.WriteHeader(http.StatusConflict)
+			return
+		case ca.ErrCertExpired:
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		default:
 			logger.WithError(err).Error("failed to add certificate to database")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -126,9 +140,13 @@ func ControlCertRevoke(authority ca.ResponderDB, certdb ca.CertStore) http.Handl
 				SerialNumber:  cert.SerialNumber,
 				IssuerKeyHash: cert.AuthorityKeyId,
 			})
-			if err != nil {
+			switch err {
+			case nil:
+				w.WriteHeader(http.StatusOK)
+			case ca.ErrCertNotFound:
+				w.WriteHeader(http.StatusNotFound)
+			default:
 				w.WriteHeader(http.StatusInternalServerError)
-				return
 			}
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
