@@ -26,7 +26,6 @@ index.txt.attr.old
 serial
 serial.old
 gocoverage.txt
-internal/mocks/mockdb
 
 # For mac people
 .DS_Store

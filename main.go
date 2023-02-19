@@ -26,6 +26,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+//go:generate sh testdata/gen.sh --regenerate
+//go:generate mockgen -package mockca -destination internal/mocks/mockca/mockca.go gopkg.hrry.dev/ocsprey/ca ResponderDB,CertStore
+//go:generate mockgen -package mockdb -destination internal/mocks/mockdb/mockdb.go gopkg.hrry.dev/ocsprey/internal/db DB,Rows
+
 func init() {
 	os.Unsetenv("PGSERVICEFILE")
 }

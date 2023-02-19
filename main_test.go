@@ -1,3 +1,5 @@
+//go:build functional_test
+
 package main
 
 import (
@@ -27,18 +29,16 @@ import (
 	"gopkg.hrry.dev/ocsprey/internal/testutil"
 )
 
-//go:generate sh testdata/gen.sh --regenerate
-//go:generate mockgen -package mockca -destination internal/mocks/mockca/mockca.go gopkg.hrry.dev/ocsprey/ca ResponderDB,CertStore
-//go:generate mockgen -package mockdb -destination internal/mocks/mockdb/mockdb.go gopkg.hrry.dev/ocsprey/internal/db DB,Rows
-
-var logger = logrus.New()
-var testConfig = Config{
-	OpenSSL: []OpenSSLIndexConfig{
-		{BaseDir: "testdata/pki0"},
-		{BaseDir: "testdata/pki1"},
-		{BaseDir: "testdata/pki2"},
-	},
-}
+var (
+	logger     = logrus.New()
+	testConfig = Config{
+		OpenSSL: []OpenSSLIndexConfig{
+			{BaseDir: "testdata/pki0"},
+			{BaseDir: "testdata/pki1"},
+			{BaseDir: "testdata/pki2"},
+		},
+	}
+)
 
 func init() {
 	logger.SetOutput(io.Discard)
