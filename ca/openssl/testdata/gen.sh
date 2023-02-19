@@ -2,6 +2,8 @@
 
 set -eu
 
+export OCSP_URL=http://localhost:8888
+
 for i in $(seq 0 1); do
 	root="testdata/pki${i}"
 	export CA_ROOT="${root}"

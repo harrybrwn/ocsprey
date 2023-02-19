@@ -53,6 +53,7 @@ func EmptyIndex() *IndexTXT {
 	return &txt
 }
 
+// Add an entry to the index.
 func (txt *IndexTXT) AddIndex(cfg *IndexConfig) error {
 	if cfg.Hash == 0 {
 		cfg.Hash = crypto.SHA1
@@ -115,6 +116,7 @@ func key(serial ca.ID, ix uint8) indexKey {
 	return k
 }
 
+// Get a certificate from the index.
 func (txt *IndexTXT) Get(ctx context.Context, id ca.KeyID) (*x509.Certificate, ca.CertStatus, error) {
 	ix, err := txt.getIndex(id.KeyHash())
 	if err != nil {
@@ -127,7 +129,7 @@ func (txt *IndexTXT) Get(ctx context.Context, id ca.KeyID) (*x509.Certificate, c
 	if !ok {
 		return nil, ca.Invalid, ca.ErrCertNotFound
 	}
-	file := txt.entryFile(&entry, ix)
+	file := txt.certFilename(&entry, ix)
 	cert, err := certutil.OpenCertificate(file)
 	if err != nil {
 		return nil, entry.Status, err
@@ -135,6 +137,7 @@ func (txt *IndexTXT) Get(ctx context.Context, id ca.KeyID) (*x509.Certificate, c
 	return cert, entry.Status, nil
 }
 
+// Get the certificate status of a certificate from the index.
 func (txt *IndexTXT) Status(ctx context.Context, id ca.KeyID) (ca.CertStatus, error) {
 	ix, err := txt.getIndex(id.KeyHash())
 	if err != nil {
@@ -150,6 +153,7 @@ func (txt *IndexTXT) Status(ctx context.Context, id ca.KeyID) (ca.CertStatus, er
 	return entry.Status, nil
 }
 
+// Delete an entry in the index.
 func (txt *IndexTXT) Del(ctx context.Context, id ca.KeyID) error {
 	ix, err := txt.getIndex(id.KeyHash())
 	if err != nil {
@@ -163,7 +167,7 @@ func (txt *IndexTXT) Del(ctx context.Context, id ca.KeyID) error {
 	if !ok {
 		return ca.ErrCertNotFound
 	}
-	return os.Remove(txt.entryFile(&entry, ix))
+	return os.Remove(txt.certFilename(&entry, ix))
 }
 
 func (txt *IndexTXT) Put(ctx context.Context, cert *x509.Certificate) error {
@@ -190,6 +194,12 @@ func (txt *IndexTXT) Put(ctx context.Context, cert *x509.Certificate) error {
 	}
 
 	key := key(cert.SerialNumber, ix)
+	txt.mu.Lock()
+	_, found := txt.certs[key]
+	txt.mu.Unlock()
+	if found {
+		return ca.ErrCertExists
+	}
 	file := txt.filename(cert.SerialNumber, ix)
 	if err = certutil.WriteCertificate(file, cert.Raw); err != nil {
 		return err
@@ -240,7 +250,7 @@ func (txt *IndexTXT) filename(serial *big.Int, ix uint8) string {
 	)
 }
 
-func (txt *IndexTXT) entryFile(entry *indexEntry, ix uint8) string {
+func (txt *IndexTXT) certFilename(entry *indexEntry, ix uint8) string {
 	if len(entry.filename) > 0 {
 		return entry.filename
 	}

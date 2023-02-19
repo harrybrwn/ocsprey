@@ -13,7 +13,9 @@ import (
 	"gopkg.hrry.dev/ocsprey/internal/log"
 )
 
-func (txt *IndexTXT) WatchFiles(ctx context.Context) error {
+type WatchOpt func(*watcher)
+
+func (txt *IndexTXT) WatchFiles(ctx context.Context, opts ...WatchOpt) error {
 	wtr, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -24,19 +26,36 @@ func (txt *IndexTXT) WatchFiles(ctx context.Context) error {
 			return err
 		}
 	}
+	for _, o := range opts {
+		o(&w)
+	}
 	go w.watch(ctx)
 	return nil
 }
 
+func WithEventChannel(ch chan string) WatchOpt {
+	return func(w *watcher) {
+		w.channels = append(w.channels, ch)
+	}
+}
+
 type watcher struct {
-	txt     *IndexTXT
-	watcher *fsnotify.Watcher
+	txt      *IndexTXT
+	watcher  *fsnotify.Watcher
+	channels []chan string
 }
 
 func (w *watcher) watch(ctx context.Context) {
-	defer w.watcher.Close()
 	logger := log.ContextLogger(ctx).
 		WithField("component", "openssl-index-file-watcher")
+	defer func() {
+		if err := w.watcher.Close(); err != nil {
+			logger.WithError(err).Error("failed to close file watcher")
+		}
+		for _, ch := range w.channels {
+			close(ch)
+		}
+	}()
 	logger.WithField("files", w.watcher.WatchList()).Info("watching for file changes")
 	for {
 		select {
@@ -67,6 +86,10 @@ func (w *watcher) watch(ctx context.Context) {
 }
 
 func (w *watcher) handleEvent(l logrus.FieldLogger, event *fsnotify.Event) error {
+	ix, cfg := w.findIndexConfig(event.Name)
+	if cfg == nil {
+		return errors.New("got event for untracked index config")
+	}
 	// If the operation was REMOVE but the file still exists then we will want
 	// to add it back to the pool of files being watched.
 	if isOp(event, fsnotify.Remove) && exists(event.Name) {
@@ -75,10 +98,6 @@ func (w *watcher) handleEvent(l logrus.FieldLogger, event *fsnotify.Event) error
 			l.WithError(err).Error("failed to add file back to event listener pool")
 			return err
 		}
-	}
-	ix, cfg := w.findIndexConfig(event.Name)
-	if cfg == nil {
-		return errors.New("got event for untracked index config")
 	}
 	f, err := os.Open(event.Name)
 	if err != nil {
@@ -89,16 +108,20 @@ func (w *watcher) handleEvent(l logrus.FieldLogger, event *fsnotify.Event) error
 	if err != nil {
 		return err
 	}
+	w.txt.mu.Lock()
 	for _, entry := range entries {
 		k := key(entry.serial, ix)
-		w.txt.mu.Lock()
 		old, ok := w.txt.certs[k]
 		// The in-memory status should hold precedence over the new file changes
 		if ok && old.Status != ca.Valid && entry.Status == ca.Valid {
 			entry.Status = old.Status
 		}
 		w.txt.certs[k] = *entry
-		w.txt.mu.Unlock()
+	}
+	w.txt.mu.Unlock()
+	// Notify all that a change has been registered
+	for _, ch := range w.channels {
+		go func(ch chan string) { ch <- event.Name }(ch)
 	}
 	return nil
 }
