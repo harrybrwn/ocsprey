@@ -3,6 +3,7 @@ package log
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -28,13 +29,20 @@ func ContextLogger(ctx context.Context) logrus.FieldLogger {
 func HTTPRequests(wrap http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		l := ContextLogger(ctx).WithFields(logrus.Fields{
+		start := time.Now()
+		fields := logrus.Fields{
 			"method":      r.Method,
 			"uri":         r.RequestURI,
 			"host":        r.Host,
 			"remote_addr": r.RemoteAddr,
-		})
-		l.Trace("request")
+		}
+		logger := ContextLogger(ctx)
+		l := logger.WithFields(fields)
+		l.Trace("request start")
+
 		wrap.ServeHTTP(w, r.WithContext(Stash(ctx, l)))
+
+		fields["duration"] = time.Since(start).Nanoseconds()
+		logger.WithFields(fields).Debug("request handled")
 	}
 }

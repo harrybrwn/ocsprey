@@ -42,7 +42,7 @@ x509_extensions	   = v3_ca
 basicConstraints       = CA:FALSE
 subjectKeyIdentifier   = hash
 authorityKeyIdentifier = keyid, issuer
-authorityInfoAccess    = OCSP;URI:http://localhost:8888
+authorityInfoAccess    = 'OCSP;URI:'${ENV::OCSP_URL}
 
 
 [v3_req]
@@ -84,7 +84,7 @@ keyUsage               = digitalSignature, nonRepudiation, keyEncipherment, data
 extendedKeyUsage       = clientAuth
 authorityKeyIdentifier = keyid:always, issuer
 subjectKeyIdentifier   = hash
-authorityInfoAccess    = OCSP;URI:http://localhost:8888
+authorityInfoAccess    = 'OCSP;URI:'${ENV::OCSP_URL}
 
 
 [server]
@@ -93,7 +93,7 @@ keyUsage               = digitalSignature, nonRepudiation, keyEncipherment, data
 extendedKeyUsage       = serverAuth
 authorityKeyIdentifier = keyid:always, issuer
 subjectKeyIdentifier   = hash
-authorityInfoAccess    = OCSP;URI:http://localhost:8888
+authorityInfoAccess    = 'OCSP;URI:'${ENV::OCSP_URL}
 
 
 [v3_ocsp_responder]

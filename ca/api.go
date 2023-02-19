@@ -24,6 +24,7 @@ const (
 var (
 	ErrCertNotFound = errors.New("certificate not found")
 	ErrCertExpired  = errors.New("certificate is expired")
+	ErrCertExists   = errors.New("certificate already exists")
 )
 
 type KeyID interface {

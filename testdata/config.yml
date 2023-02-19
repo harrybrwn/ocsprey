@@ -25,3 +25,12 @@ openssl:
     ocsp_responder:
       cert: out/ocsp-responder.crt
       key: out/ocsp-responder.key
+
+db:
+  type: postgres
+  host: postgres
+  user: ocsprey
+  password: testbench0
+  database: ocsprey
+  sslmode: disable
+

@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
-	"time"
 
 	_ "github.com/golang/mock/gomock"
 	"github.com/sirupsen/logrus"
@@ -25,12 +24,12 @@ import (
 	"gopkg.hrry.dev/ocsprey/ca/openssl"
 	"gopkg.hrry.dev/ocsprey/internal/certutil"
 	"gopkg.hrry.dev/ocsprey/internal/log"
-	"gopkg.hrry.dev/ocsprey/internal/server"
 	"gopkg.hrry.dev/ocsprey/internal/testutil"
 )
 
-//go:generate sh testdata/gen.sh
+//go:generate sh testdata/gen.sh --regenerate
 //go:generate mockgen -package mockca -destination internal/mocks/mockca/mockca.go gopkg.hrry.dev/ocsprey/ca ResponderDB,CertStore
+//go:generate mockgen -package mockdb -destination internal/mocks/mockdb/mockdb.go gopkg.hrry.dev/ocsprey/internal/db DB,Rows
 
 var logger = logrus.New()
 var testConfig = Config{
@@ -54,10 +53,13 @@ func init() {
 }
 
 func TestServer(t *testing.T) {
+	// t.Skip("this test is really flaky in CI")
 	const hash = crypto.SHA1
+
 	logger.SetOutput(os.Stdout)
 	logger.Level = logrus.TraceLevel
 	defer logger.SetOutput(io.Discard)
+
 	ctx := log.Stash(context.Background(), logger)
 	txt := openssl.EmptyIndex()
 	authority := inmem.NewResponderDB(hash)
@@ -66,15 +68,12 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = txt.WatchFiles(ctx); err != nil {
+	events := make(chan string, 5)
+	if err = txt.WatchFiles(ctx, openssl.WithEventChannel(events)); err != nil {
 		t.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	mux.Handle("/", server.Responder(authority, txt))
-	mux.Handle("/issuer", server.ControlIssuer(authority))
-	mux.Handle("/leaf", server.ControlCert(authority, txt))
-	mux.Handle("/leaf/revoke", server.ControlCertRevoke(authority, txt))
-	srv := httptest.NewUnstartedServer(mux)
+	h := newServerHandler(txt, authority)
+	srv := httptest.NewUnstartedServer(h)
 	srv.Config.BaseContext = func(net.Listener) context.Context { return ctx }
 	srv.Start()
 	defer srv.Close()
@@ -94,7 +93,8 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Millisecond * 100)
+	<-events // wait to register file event
+
 	resp, err = check(srv.URL, cli.root, fmt.Sprintf("out/%s.crt", name))
 	if err != nil {
 		t.Error(err)
@@ -106,7 +106,8 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	time.Sleep(time.Millisecond * 200)
+	<-events // wait to register file event
+
 	resp, err = check(srv.URL, cli.root, fmt.Sprintf("out/%s.crt", name))
 	if err != nil {
 		t.Error(err)

@@ -18,11 +18,17 @@ import (
 	"gopkg.hrry.dev/ocsprey/ca"
 	"gopkg.hrry.dev/ocsprey/ca/inmem"
 	"gopkg.hrry.dev/ocsprey/ca/openssl"
+	"gopkg.hrry.dev/ocsprey/ca/sqlca"
 	"gopkg.hrry.dev/ocsprey/internal/certutil"
+	"gopkg.hrry.dev/ocsprey/internal/db"
 	"gopkg.hrry.dev/ocsprey/internal/log"
 	"gopkg.hrry.dev/ocsprey/internal/server"
 	"gopkg.in/yaml.v3"
 )
+
+func init() {
+	os.Unsetenv("PGSERVICEFILE")
+}
 
 func main() {
 	root := newRootCmd()
@@ -77,7 +83,10 @@ func newRootCmd() *cobra.Command {
 	}
 
 	c.SetContext(log.Stash(context.Background(), logger))
-	c.AddCommand(newServerCmd(&config, logger))
+	c.AddCommand(
+		newServerCmd(&config, logger),
+		newMigrateCmd(&config, logger),
+	)
 	f := c.PersistentFlags()
 	f.StringVar(&logLevel, "log-level", logLevel, "set the logging level (trace, debug, info, warn, error)")
 	f.StringVar(&logFormat, "log-format", logFormat, "set the logging format (text, json)")
@@ -86,7 +95,11 @@ func newRootCmd() *cobra.Command {
 }
 
 func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
-	var port = toInt(env("SERVER_PORT", "8888"))
+	var (
+		port       = toInt(env("SERVER_PORT", "8888"))
+		certDBType = env("CERT_DB_TYPE", "openssl")
+		respDBType = env("RESPONDER_DB_TYPE", "mem")
+	)
 	c := cobra.Command{
 		Use:   "server",
 		Short: "OCSP responder server",
@@ -96,8 +109,12 @@ func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 				authority = inmem.NewResponderDB(hash)
 				certdb    = openssl.EmptyIndex()
 			)
+			if err := conf.DB.InitFromEnv(); err != nil {
+				return err
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
+			ctx = log.Stash(ctx, logger)
 
 			if len(conf.OpenSSL) > 0 {
 				err := addOpenSSLConfigs(ctx, certdb, authority, conf)
@@ -109,15 +126,9 @@ func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 				}
 			}
 
-			mux := http.NewServeMux()
-			mux.Handle("/", server.Responder(authority, certdb))
-			mux.Handle("/issuer", server.ControlIssuer(authority))
-			mux.Handle("/leaf", server.ControlCert(authority, certdb))
-			mux.Handle("/leaf/revoke", server.ControlCertRevoke(authority, certdb))
-
 			srv := http.Server{
 				Addr:        fmt.Sprintf(":%d", port),
-				Handler:     log.HTTPRequests(mux),
+				Handler:     newServerHandler(certdb, authority),
 				BaseContext: func(net.Listener) context.Context { return ctx },
 			}
 			logger.Infof("listening on [::]:%d", port)
@@ -142,7 +153,29 @@ func newServerCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 	}
 	f := c.Flags()
 	f.IntVarP(&port, "port", "p", port, "server port")
+	f.StringVarP(&certDBType, "cert-db-type", "t", certDBType, "database type to use")
+	f.StringVarP(&respDBType, "responder-db-type", "r", respDBType, "type of database to use for the responder certificates")
 	return &c
+}
+
+func newMigrateCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
+	c := cobra.Command{
+		Use:   "migrate",
+		Short: "Run database migrations for the sql CA database.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sqlca.RunMigrations(logger, conf.DB.URL())
+		},
+	}
+	return &c
+}
+
+func newServerHandler(certdb ca.CertStore, responder ca.ResponderDB) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", server.Responder(responder, certdb))
+	mux.Handle("/issuer", server.ControlIssuer(responder))
+	mux.Handle("/leaf", server.ControlCert(responder, certdb))
+	mux.Handle("/leaf/revoke", server.ControlCertRevoke(responder, certdb))
+	return log.HTTPRequests(mux)
 }
 
 func env(key, defaultVal string) string {
@@ -168,6 +201,7 @@ func exists(s string) bool {
 
 type Config struct {
 	OpenSSL []OpenSSLIndexConfig `yaml:"openssl" json:"openssl"`
+	DB      db.Config            `yaml:"db" json:"db"`
 	hash    crypto.Hash
 }
 
@@ -237,6 +271,19 @@ func openResponderKeys(root, cert, key string) (*ca.Responder, error) {
 	responder.Signer.Key, err = certutil.OpenKey(key)
 	if err != nil {
 		return nil, err
+	}
+	now := time.Now()
+	if now.After(responder.CA.NotAfter) {
+		return &responder, fmt.Errorf("responder CA %q is expired", root)
+	}
+	if now.After(responder.Signer.Cert.NotAfter) {
+		return &responder, fmt.Errorf("responder cert %q is expired", cert)
+	}
+	if now.Before(responder.CA.NotBefore) {
+		return &responder, fmt.Errorf("responder CA %q is not yet valid", root)
+	}
+	if now.Before(responder.Signer.Cert.NotBefore) {
+		return &responder, fmt.Errorf("responder cert %q is not yet valid", cert)
 	}
 	return &responder, nil
 }

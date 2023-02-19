@@ -7,14 +7,18 @@
 /bin/
 /ocsprey
 
-# Test Data
+# Utils
 *.sh
+psql
+
+# Test Data
 *.log
 *.crt
 *.key
 *.csr
 *.pem
 *.srl
+*.der
 index.txt
 index.txt.old
 index.txt.attr
@@ -22,6 +26,7 @@ index.txt.attr.old
 serial
 serial.old
 gocoverage.txt
+internal/mocks/mockdb
 
 # For mac people
 .DS_Store

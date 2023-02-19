@@ -3,7 +3,22 @@
 set -eu
 
 export OPENSSL_CONF=testdata/openssl.cnf
+export OCSP_URL=http://ocsprey:8888
 GEN_LOG=/dev/null
+REGENERATE=false
+
+while [ $# -gt 0 ]; do
+	case $1 in
+	--regenerate)
+		REGENERATE=true
+		shift
+		;;
+	*)
+		echo "Error: unknown flag $1"
+		exit 1
+		;;
+	esac
+done
 # GEN_LOG="./openssl-generate.log"
 # rm -f "$GEN_LOG"
 # touch "$GEN_LOG"
@@ -11,7 +26,9 @@ GEN_LOG=/dev/null
 for i in $(seq 0 2); do
 	root="testdata/pki${i}"
 	export CA_ROOT="${root}"
-	rm -rf "${root}"
+	if ${REGENERATE}; then
+		rm -rf "${root}"
+	fi
 	mkdir -p "${root}/out" "${root}/db/certs"
 
 	if [ ! -f "${root}/db/serial" ]; then
