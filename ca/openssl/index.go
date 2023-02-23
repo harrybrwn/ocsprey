@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/ocsp"
 	"gopkg.hrry.dev/ocsprey/ca"
 	"gopkg.hrry.dev/ocsprey/internal/certutil"
 	"gopkg.hrry.dev/ocsprey/internal/ocspext"
@@ -230,6 +229,7 @@ func (txt *IndexTXT) Revoke(ctx context.Context, id ca.KeyID) error {
 		return ca.ErrCertNotFound
 	}
 	e.Status = ca.Revoked
+	e.revocationReason = ca.Unspecified
 	txt.mu.Lock()
 	txt.certs[key] = e
 	txt.mu.Unlock()
@@ -297,7 +297,7 @@ type indexEntry struct {
 	Status           ca.CertStatus
 	expiration       time.Time
 	revocation       *time.Time
-	revocationReason uint8
+	revocationReason ca.RevocationReason
 	serial           *big.Int
 	filename         string
 	name             string
@@ -349,41 +349,13 @@ func parseIndex(in io.Reader) ([]*indexEntry, error) {
 				return nil, err
 			}
 			if len(parts) > 1 {
-				e.revocationReason = uint8(parseRevocationReason(parts[1]))
+				e.revocationReason = ca.ParseRevocationReason(parts[1])
 			}
 			e.revocation = &revocation
 		}
 		entries = append(entries, e)
 	}
 	return entries, nil
-}
-
-// https://datatracker.ietf.org/doc/html/rfc5280#section-5.3.1
-func parseRevocationReason(s string) int {
-	switch s {
-	case "unspecified":
-		return ocsp.Unspecified
-	case "keyCompromise":
-		return ocsp.KeyCompromise
-	case "CACompromise":
-		return ocsp.CACompromise
-	case "affiliationChanged":
-		return ocsp.AffiliationChanged
-	case "superseded":
-		return ocsp.Superseded
-	case "cessationOfOperation":
-		return ocsp.CessationOfOperation
-	case "certificateHold":
-		return ocsp.CertificateHold
-	case "removeFromCRL":
-		return ocsp.RemoveFromCRL
-	case "privilegeWithdrawn":
-		return ocsp.PrivilegeWithdrawn
-	case "aACompromise", "aacompromise":
-		return ocsp.AACompromise
-	default:
-		return ocsp.Unspecified
-	}
 }
 
 var _ ca.CertStore = (*IndexTXT)(nil)

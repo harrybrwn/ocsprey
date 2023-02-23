@@ -167,7 +167,7 @@ func newMigrateCmd(conf *Config, logger *logrus.Logger) *cobra.Command {
 		Use:   "migrate",
 		Short: "Run database migrations for the sql CA database.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sqlca.RunMigrations(logger, conf.DB.URL())
+			return sqlca.MigrateUp(logger, conf.DB.URL())
 		},
 	}
 	return &c

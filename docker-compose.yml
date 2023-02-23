@@ -27,6 +27,13 @@ services:
     ports:
       - "5432:5432"
 
+  cassandra:
+    image: cassandra:3.11.14
+    ports:
+      - "7000:7000"
+    volumes:
+      - cassandra:/opt/cassandra/data/
+
   redis:
     image: redis:7.0.8
     command: >
@@ -37,3 +44,4 @@ services:
 volumes:
   postgres:
   redis:
+  cassandra:

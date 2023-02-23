@@ -29,6 +29,7 @@ type certdb struct {
 type certificate struct {
 	cert   *x509.Certificate
 	status ca.CertStatus
+	reason ca.RevocationReason
 }
 
 type certKey [21]byte
@@ -114,5 +115,6 @@ func (db *certdb) Revoke(ctx context.Context, id ca.KeyID) error {
 		return ca.ErrCertNotFound
 	}
 	cert.status = ca.Revoked
+	cert.reason = ca.Unspecified
 	return nil
 }

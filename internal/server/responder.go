@@ -43,7 +43,7 @@ func Responder(authority ca.ResponderDB, certdb ca.CertStore) http.HandlerFunc {
 				IssuerHash:       req.HashAlgorithm,
 				RevocationReason: ocsp.Unspecified,
 				ThisUpdate:       now,
-				NextUpdate:       now.Add(time.Hour), // TODO
+				NextUpdate:       now.Add(time.Hour), // TODO should be a config opt
 				SerialNumber:     req.SerialNumber,
 				Extensions:       exts,
 			}

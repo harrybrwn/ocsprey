@@ -25,17 +25,28 @@ import (
 	"gopkg.hrry.dev/ocsprey/ca/inmem"
 	"gopkg.hrry.dev/ocsprey/ca/openssl"
 	"gopkg.hrry.dev/ocsprey/internal/certutil"
+	"gopkg.hrry.dev/ocsprey/internal/db"
 	"gopkg.hrry.dev/ocsprey/internal/log"
 	"gopkg.hrry.dev/ocsprey/internal/testutil"
 )
 
 var (
 	logger     = logrus.New()
+	debug      = false
 	testConfig = Config{
 		OpenSSL: []OpenSSLIndexConfig{
 			{BaseDir: "testdata/pki0"},
 			{BaseDir: "testdata/pki1"},
 			{BaseDir: "testdata/pki2"},
+		},
+		DB: db.Config{
+			Type:     "postgres",
+			Host:     "localhost",
+			Port:     5432,
+			User:     "ocsprey",
+			Password: "testbed",
+			Database: "ocsprey",
+			SSLMode:  "disable",
 		},
 	}
 )
@@ -50,6 +61,10 @@ func init() {
 		testConfig.OpenSSL[i].OCSPResponder.Cert = "out/ocsp-responder.crt"
 		testConfig.OpenSSL[i].OCSPResponder.Key = "out/ocsp-responder.key"
 	}
+	// err := sqlca.MigrateUp(logger, testConfig.DB.URL())
+	// if err != nil {
+	// 	panic(err)
+	// }
 }
 
 func TestServer(t *testing.T) {
@@ -186,10 +201,15 @@ func (o *opensslCLI) new(name string) error {
 
 func (o *opensslCLI) cmd(prod string, args ...string) *exec.Cmd {
 	cmd := exec.Command(prod, args...)
+	if debug {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	cmd.Env = append(
 		cmd.Env,
 		fmt.Sprintf("OPENSSL_CONF=%s", o.config),
 		fmt.Sprintf("CA_ROOT=%s", o.root),
+		"OCSP_URL=http://ocsp:8888",
 	)
 	return cmd
 }
