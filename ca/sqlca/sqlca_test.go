@@ -196,7 +196,9 @@ func TestResponderDB_Get(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := rdb.hash.New()
-	hashPublicKey(res.CA, h)
+	if err = hashPublicKey(res.CA, h); err != nil {
+		t.Fatal(err)
+	}
 	res.CA.AuthorityKeyId = h.Sum(nil)
 	if !certificateEqual(res.CA, rootCA.Cert) {
 		t.Error("expected result CA to remain the same")
